@@ -39,6 +39,23 @@ export function saveApiKey(apiKey: string): void {
 }
 
 /**
+ * Retrieves the selected Gemini model from local storage.
+ * @returns The model name string, or a default value if not found.
+ */
+export function getModel(): string {
+  return localStorage.getItem('geminiModel') || 'gemini-2.5-flash-image';
+}
+
+/**
+ * Saves the selected Gemini model to local storage.
+ * @param model The model name to save.
+ */
+export function saveModel(model: string): void {
+  localStorage.setItem('geminiModel', model);
+}
+
+
+/**
  * Validates a Gemini API key by making a simple test request.
  * @param apiKey The API key to validate.
  * @returns A Promise that resolves to true if the key is valid, false otherwise.
@@ -53,8 +70,13 @@ export async function validateApiKey(apiKey: string): Promise<boolean> {
       contents: 'test',
     });
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error("API Key validation failed:", error);
+     // A quota error means the key is valid but has no quota.
+     // We should allow the user to save it and see the specific error on generation.
+    if (error.message && (error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('"code":429'))) {
+      return true;
+    }
     return false;
   }
 }
@@ -63,11 +85,13 @@ export async function validateApiKey(apiKey: string): Promise<boolean> {
  * Edits a single image using a text prompt via the Gemini API.
  * @param file The File object to edit.
  * @param prompt The text prompt for editing.
+ * @param model The Gemini model to use for the generation.
  * @returns A Promise that resolves with the base64 encoded edited image, or null if an error occurs.
  */
 export async function editImageWithPrompt(
   file: FileWithPreview,
   prompt: string,
+  model: string,
 ): Promise<string | null> {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -85,7 +109,7 @@ export async function editImageWithPrompt(
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: model,
       contents: {
         parts: [
           {
@@ -122,11 +146,22 @@ export async function editImageWithPrompt(
     return null; // No image data found in response
   } catch (error: any) {
     console.error('Lỗi khi chỉnh sửa ảnh với Gemini API:', error);
+    
+    // Handle specific quota/billing errors with a user-friendly message.
+    if (error.message && (error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('"code":429'))) {
+      throw new Error(
+        'Lỗi Hạn mức (Quota Exceeded):\n' +
+        'API Key của bạn đã hết hạn mức sử dụng miễn phí. \n' +
+        'Vui lòng bật tính năng thanh toán (billing) cho dự án Google Cloud của bạn để tiếp tục.\n\n' +
+        'Truy cập: ai.google.dev/gemini-api/docs/billing để biết thêm chi tiết.'
+      );
+    }
+    
     // Provide a more user-friendly error message for common API key issues.
     if (error.message && (error.message.includes('API_KEY_INVALID') || error.message.includes('permission'))) {
       throw new Error('API Key không hợp lệ hoặc không có quyền cần thiết. Vui lòng kiểm tra lại key trong cài đặt.');
     }
-    // Re-throw the original error for other cases.
-    throw error;
+    // Re-throw other errors, potentially wrapping them for clarity.
+    throw new Error(error.message || 'Đã xảy ra lỗi không xác định.');
   }
 }

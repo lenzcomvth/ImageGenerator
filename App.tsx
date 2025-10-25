@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { getApiKey, saveApiKey, validateApiKey, editImageWithPrompt } from './services/geminiService';
+import { getApiKey, saveApiKey, validateApiKey, editImageWithPrompt, getModel, saveModel } from './services/geminiService';
 import { fileToBase64 } from './services/geminiService';
 import { FileWithPreview, GeneratedImage } from './types';
 
@@ -40,6 +40,7 @@ const App: React.FC = () => {
   const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [isKeyValidating, setIsKeyValidating] = useState<boolean>(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [model, setModel] = useState<string>(getModel());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,6 +59,7 @@ const App: React.FC = () => {
     } else {
       setIsSettingsOpen(true);
     }
+    setModel(getModel());
   }, []);
 
   useEffect(() => {
@@ -162,7 +164,7 @@ const App: React.FC = () => {
     const newGeneratedImagesThisRun: GeneratedImage[] = [];
     for (const file of uploadedFiles) {
       try {
-        const editedImageUrl = await editImageWithPrompt(file, prompt);
+        const editedImageUrl = await editImageWithPrompt(file, prompt, model);
         if (editedImageUrl) {
           const newImage: GeneratedImage = {
             id: `${file.name}-${Date.now()}`,
@@ -190,7 +192,7 @@ const App: React.FC = () => {
     }
     setGeneratedImages((prev) => [...newGeneratedImagesThisRun, ...prev]);
     setIsLoading(false);
-  }, [uploadedFiles, prompt, directoryHandle, saveImageToFileSystem, hasApiKey]);
+  }, [uploadedFiles, prompt, directoryHandle, saveImageToFileSystem, hasApiKey, model]);
 
   const handleCopyPrompt = useCallback(() => {
     if (selectedImage?.prompt) {
@@ -262,6 +264,11 @@ const App: React.FC = () => {
     }
     setIsKeyValidating(false);
   }, [apiKeyInput]);
+
+  const handleModelChange = (newModel: string) => {
+    setModel(newModel);
+    saveModel(newModel);
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center p-4 bg-gray-900 text-gray-100">
@@ -360,16 +367,45 @@ const App: React.FC = () => {
       {isSettingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70" onClick={() => setIsSettingsOpen(false)}>
           <div className="bg-gray-800 rounded-xl shadow-2xl p-8 border border-gray-700 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-2xl font-semibold mb-4 text-blue-300">Cài đặt Gemini API Key</h2>
-            <p className="text-gray-400 mb-6">
-              Vui lòng cung cấp API key của bạn để sử dụng tính năng tạo ảnh. Bạn có thể lấy key từ{' '}
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-                Google AI Studio
-              </a>.
-            </p>
-            <label htmlFor="apiKeyInput" className="text-sm font-medium text-gray-300 block mb-2">Your API Key</label>
-            <input id="apiKeyInput" type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} className="w-full p-3 bg-gray-700 border-gray-600 rounded-lg focus:ring-purple-500" placeholder="Nhập API key của bạn ở đây"/>
-            {apiKeyError && <p className="text-red-400 mt-2 text-sm">{apiKeyError}</p>}
+            <h2 className="text-2xl font-semibold mb-4 text-blue-300">Cài đặt API</h2>
+            
+            <div className="mb-6">
+                <p className="text-gray-400 mb-4 text-sm">
+                Vui lòng cung cấp API key của bạn để sử dụng tính năng tạo ảnh. Bạn có thể lấy key từ{' '}
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                    Google AI Studio
+                </a>.
+                <br/><br/>
+                Lưu ý: Bạn có thể cần phải{' '}
+                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                    bật thanh toán (billing)
+                </a>
+                {' '}cho dự án Google Cloud của mình để tránh các lỗi về hạn mức sử dụng.
+                </p>
+                <label htmlFor="apiKeyInput" className="text-sm font-medium text-gray-300 block mb-2">Your API Key</label>
+                <input id="apiKeyInput" type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} className="w-full p-3 bg-gray-700 border-gray-600 rounded-lg focus:ring-purple-500" placeholder="Nhập API key của bạn ở đây"/>
+                {apiKeyError && <p className="text-red-400 mt-2 text-sm">{apiKeyError}</p>}
+            </div>
+
+            <div className="border-t border-gray-700 pt-6">
+                <h3 className="text-lg font-semibold mb-2 text-blue-300">Cấu hình Model</h3>
+                <p className="text-gray-400 mb-4 text-sm">
+                Chọn model Gemini bạn muốn sử dụng để chỉnh sửa ảnh. 
+                <code className="bg-gray-700 px-1 py-0.5 rounded">gemini-2.5-flash-image</code> được khuyến nghị cho nhiệm vụ này.
+                </p>
+                <label htmlFor="modelSelect" className="text-sm font-medium text-gray-300 block mb-2">Model chỉnh sửa ảnh</label>
+                <select 
+                id="modelSelect"
+                value={model}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="w-full p-3 bg-gray-700 border-gray-600 rounded-lg focus:ring-purple-500"
+                >
+                    <option value="gemini-2.5-flash-image">gemini-2.5-flash-image (Khuyến nghị)</option>
+                    <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                </select>
+            </div>
+
             <div className="flex justify-end gap-4 mt-8">
               <button onClick={() => setIsSettingsOpen(false)} className="py-2 px-5 bg-gray-600 hover:bg-gray-700 font-bold rounded-lg" disabled={isKeyValidating}>Hủy</button>
               <button onClick={handleSaveApiKey} className="py-2 px-5 bg-blue-600 hover:bg-blue-700 font-bold rounded-lg flex items-center disabled:opacity-50" disabled={isKeyValidating || !apiKeyInput.trim()}>
